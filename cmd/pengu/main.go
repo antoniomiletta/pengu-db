@@ -1,12 +1,23 @@
 package main
 
 import (
-	"github.com/antoniomiletta/pengu/pkg/client"
+	"log"
+
+	"github.com/antoniomiletta/pengu-db/pengu"
 )
 
 func main() {
-	pengu := client.NewDB("data/data.db")
+	store, err := pengu.Open("data/data.db")
+	if err != nil {
+		log.Fatalf("pengu: %v", err)
+	}
 
-	val, _ := pengu.Get("ai")
-	println(val)
+	store.Set([]byte("hello"), []byte("goodbye"))
+
+	val, err := store.Get([]byte("hello"))
+	println(string(val))
+
+	store.Delete([]byte("hello"))
+
+	println(string(val))
 }
