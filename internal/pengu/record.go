@@ -5,16 +5,15 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
-	"os"
 )
 
 type Record struct {
-	crc     uint32
-	typ     uint8
-	keySize uint32
-	valSize uint32
-	key     []byte
-	val     []byte
+	CRC     uint32
+	Typ     uint8
+	KeySize uint32
+	ValSize uint32
+	Key     []byte
+	Val     []byte
 }
 
 const (
@@ -36,8 +35,10 @@ const (
 	OffsetValSize = OffsetKeySize + SizeKeySize
 )
 
-// decode parses a Record from r returning the record and the total bytes read.
-func decode(r io.Reader) (*Record, int, error) {
+// Decode parses a Record from r returning the record and the total bytes read.
+// It uses a Reader instead of a file descriptor, avoiding multiple syscalls.
+// It can be sequentially called to fully parse a log file.
+func Decode(r io.Reader) (*Record, int, error) {
 	var header [SizeHeader]byte
 	if _, err := io.ReadFull(r, header[:]); err != nil {
 		return nil, 0, err
@@ -62,45 +63,19 @@ func decode(r io.Reader) (*Record, int, error) {
 	}
 
 	rec := &Record{
-		crc:     crc,
-		typ:     typ,
-		keySize: keySize,
-		valSize: valSize,
-		key:     key,
-		val:     val,
+		CRC:     crc,
+		Typ:     typ,
+		KeySize: keySize,
+		ValSize: valSize,
+		Key:     key,
+		Val:     val,
 	}
 	n := int(SizeHeader + keySize + valSize)
 
 	return rec, n, nil
 }
 
-func readAt(f *os.File, entry indexEntry, keySize uint32) ([]byte, error) {
-	valOffset := entry.offset + SizeHeader + int64(keySize)
-	val := make([]byte, entry.valSize)
-
-	if _, err := f.ReadAt(val, valOffset); err != nil {
-		return nil, err
-	}
-
-	return val, nil
-}
-
-func encode(typ uint8, key, val []byte) []byte {
-	keySize := uint32(len(key))
-	valSize := uint32(len(val))
-	payloadSize := keySize + valSize
-
-	buf := make([]byte, SizeHeader+payloadSize)
-
-	buf[SizeCRC] = typ
-	binary.BigEndian.PutUint32(buf[OffsetKeySize:OffsetValSize], keySize)
-	binary.BigEndian.PutUint32(buf[OffsetValSize:SizeHeader], valSize)
-
-	copy(buf[SizeHeader:], key)
-	copy(buf[SizeHeader+keySize:], val)
-
-	crc := crc32.ChecksumIEEE(buf[SizeCRC:])
-	binary.BigEndian.PutUint32(buf[:SizeCRC], crc)
-
-	return buf
-}
+// DecodeAt parses a Record at the offset and returns it.
+// Contrary to Decode, it uses readAt (pread() syscall) to read into the file,
+// and should not be called sequentially to parse a full log file.
+// func DecodeAt(f *os.File, offset int64) (*Record, error)
