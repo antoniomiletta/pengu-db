@@ -45,7 +45,18 @@ func (j *Journal) replay(fn func(rec *Record, offset int64) error) error {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			// TODO: handle unexpected EOF
+			if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, ErrCRCMismatch) {
+				fmt.Printf("[WARNING] torn/corrupted record at offset %d. Truncating file.\n", j.endOffset)
+				if err := j.file.Truncate(j.endOffset); err != nil {
+					return fmt.Errorf("failed to truncate file: %w", err)
+				}
+				// Seek to truncation point. Truncate does not move the file cursor,
+				// next Write would zero-pad the gap between truncation point -> current cursor.
+				if _, err := j.file.Seek(j.endOffset, io.SeekStart); err != nil {
+					return fmt.Errorf("failed to seek after truncation: %w", err)
+				}
+				break
+			}
 			return err
 		}
 

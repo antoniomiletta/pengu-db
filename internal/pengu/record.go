@@ -59,7 +59,7 @@ func Decode(r io.Reader) (*Record, int, error) {
 	checksum := crc32.ChecksumIEEE(header[SizeCRC:])
 	checksum = crc32.Update(checksum, crc32.IEEETable, payload)
 	if checksum != crc {
-		return nil, 0, fmt.Errorf("decode: crc mismatch (expected %d, got %d)", crc, checksum)
+		return nil, 0, fmt.Errorf("decode: %w (expected %d, got %d)", ErrCRCMismatch, crc, checksum)
 	}
 
 	rec := &Record{

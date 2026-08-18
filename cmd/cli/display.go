@@ -93,7 +93,7 @@ func display(store *pengu.Store) error {
 			break
 		}
 
-		action := "PUT"
+		action := "SET"
 		if rec.Typ == pengu.TypeTombstone {
 			action = "DELETE"
 		}
