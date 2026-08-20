@@ -36,7 +36,7 @@ func displayAlive(store *pengu.Store) error {
 
 	var count int
 
-	displayFn := func(key, val []byte) {
+	displayFn := func(key, val []byte) error {
 		displayKey := fmt.Sprintf("%q", key)
 		displayVal := fmt.Sprintf("%q", val)
 
@@ -54,6 +54,7 @@ func displayAlive(store *pengu.Store) error {
 		fmt.Printf("%-20s | %-20s | %s\n", displayKey, displayVal, sizeStr)
 
 		count++
+		return nil
 	}
 
 	if err := store.Iter(displayFn); err != nil {
@@ -68,7 +69,8 @@ func displayAlive(store *pengu.Store) error {
 }
 
 func display(store *pengu.Store) error {
-	file, err := os.Open(store.Path)
+	// TODO: check for a better approach than opening a new file handle
+	file, err := os.Open(store.Journal.Path)
 	if err != nil {
 		return fmt.Errorf("failed to open file for debugging: %w", err)
 	}

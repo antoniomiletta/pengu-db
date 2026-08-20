@@ -75,6 +75,30 @@ func Decode(r io.Reader) (*Record, int, error) {
 	return rec, n, nil
 }
 
+func encode(typ uint8, key, val []byte) []byte {
+	keySize := uint32(len(key))
+	valSize := uint32(len(val))
+	payloadSize := keySize + valSize
+
+	buf := make([]byte, 0, SizeHeader+payloadSize)
+
+	// CRC placeholder
+	buf = append(buf, 0, 0, 0, 0)
+
+	buf = append(buf, typ)
+
+	buf = binary.BigEndian.AppendUint32(buf, keySize)
+	buf = binary.BigEndian.AppendUint32(buf, valSize)
+
+	buf = append(buf, key...)
+	buf = append(buf, val...)
+
+	crc := crc32.ChecksumIEEE(buf[SizeCRC:])
+	binary.BigEndian.PutUint32(buf[:SizeCRC], crc)
+
+	return buf
+}
+
 // DecodeAt parses a Record at the offset and returns it.
 // Contrary to Decode, it uses readAt (pread() syscall) to read into the file,
 // and should not be called sequentially to parse a full log file.

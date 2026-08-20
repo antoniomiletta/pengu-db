@@ -2,35 +2,48 @@ package pengu
 
 import (
 	"bufio"
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"hash/crc32"
 	"io"
 	"os"
+	"sync/atomic"
 )
 
 type Journal struct {
+	Path      string
 	file      *os.File
+	rc        atomic.Int32
+	obsolete  atomic.Bool
 	endOffset int64
 }
 
 const LogFileFlags = os.O_CREATE | os.O_RDWR | os.O_APPEND
 const LogFilePerm = 0o644
 
-func openJournal(path string) (*Journal, error) {
-	f, err := os.OpenFile(path, LogFileFlags, LogFilePerm)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open log file: %w", err)
+// newJournal returns a journey instance with a master ref.
+// You don't have to manually increment rc on every new instance.
+func newJournal(path string, f *os.File, endOffset int64) *Journal {
+	j := &Journal{
+		Path:      path,
+		file:      f,
+		endOffset: endOffset,
 	}
-
-	return &Journal{
-		file: f,
-	}, nil
+	j.rc.Store(1) // Master ref
+	return j
 }
 
-// replay scans the log from start to finish, applies fn to each record.
-// and updates the journal end offset
+func (j *Journal) Release() {
+	if j.rc.Add(-1) == 0 {
+		j.file.Close()
+
+		if j.obsolete.Load() {
+			os.Remove(j.Path)
+		}
+	}
+}
+
+// replay scans the log from start to finish, applies fn to each record
+// and updates the journal end offset.
 func (j *Journal) replay(fn func(rec *Record, offset int64) error) error {
 	if _, err := j.file.Seek(0, io.SeekStart); err != nil {
 		return fmt.Errorf("failed to seek to start of journal: %w", err)
@@ -82,28 +95,4 @@ func readValueAt(f *os.File, entry indexEntry) ([]byte, error) {
 	}
 
 	return val, nil
-}
-
-func encode(typ uint8, key, val []byte) []byte {
-	keySize := uint32(len(key))
-	valSize := uint32(len(val))
-	payloadSize := keySize + valSize
-
-	buf := make([]byte, 0, SizeHeader+payloadSize)
-
-	// CRC placeholder
-	buf = append(buf, 0, 0, 0, 0)
-
-	buf = append(buf, typ)
-
-	buf = binary.BigEndian.AppendUint32(buf, keySize)
-	buf = binary.BigEndian.AppendUint32(buf, valSize)
-
-	buf = append(buf, key...)
-	buf = append(buf, val...)
-
-	crc := crc32.ChecksumIEEE(buf[SizeCRC:])
-	binary.BigEndian.PutUint32(buf[:SizeCRC], crc)
-
-	return buf
 }

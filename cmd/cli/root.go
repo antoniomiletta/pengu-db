@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -11,36 +12,44 @@ import (
 	"github.com/spf13/pflag"
 )
 
-func Run(store *pengu.Store) {
-	scanner := bufio.NewScanner(os.Stdin)
+func Run(ctx context.Context, store *pengu.Store) {
 	root := newRootCmd(store)
+	scanner := bufio.NewScanner(os.Stdin)
+
+	// Scan in parallel so it doesn't block ctx.Done() until enter pressed.
+	inputCh := make(chan string)
+	go func() {
+		for scanner.Scan() {
+			inputCh <- scanner.Text()
+		}
+
+		if err := scanner.Err(); err != nil {
+			return
+		}
+	}()
 
 	for {
-		print("pengu-# ")
-		if !scanner.Scan() {
-			break
+		fmt.Print("pengu-# ")
+
+		select {
+		case <-ctx.Done():
+			return
+		case line := <-inputCh:
+			if line == "" {
+				continue
+			}
+
+			if line == "exit" {
+				break
+			}
+
+			resetFlags(root)
+			root.SetArgs(strings.Fields(line))
+
+			if err := root.ExecuteContext(ctx); err != nil {
+				fmt.Printf("pengu-cli: %v\n", err)
+			}
 		}
-		line := strings.TrimSpace(scanner.Text())
-
-		if line == "" {
-			continue
-		}
-
-		if line == "exit" {
-			break
-		}
-
-		resetFlags(root)
-		root.SetArgs(strings.Fields(line))
-
-		if err := root.Execute(); err != nil {
-			fmt.Printf("pengu-cli: %v\n", err)
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		fmt.Fprintln(os.Stderr, "pengu-cli: input error: ", err)
-		os.Exit(1)
 	}
 }
 
