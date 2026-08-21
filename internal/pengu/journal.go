@@ -10,11 +10,12 @@ import (
 )
 
 type Journal struct {
-	Path      string
-	file      *os.File
-	rc        atomic.Int32
-	obsolete  atomic.Bool
-	endOffset int64
+	Path        string
+	file        *os.File
+	rc          atomic.Int32
+	obsolete    atomic.Bool
+	endOffset   int64
+	activeBytes int64
 }
 
 const LogFileFlags = os.O_CREATE | os.O_RDWR | os.O_APPEND
@@ -22,11 +23,12 @@ const LogFilePerm = 0o644
 
 // newJournal returns a journey instance with a master ref.
 // You don't have to manually increment rc on every new instance.
-func newJournal(path string, f *os.File, endOffset int64) *Journal {
+func newJournal(path string, f *os.File, endOffset int64, activeBytes int64) *Journal {
 	j := &Journal{
-		Path:      path,
-		file:      f,
-		endOffset: endOffset,
+		Path:        path,
+		file:        f,
+		endOffset:   endOffset,
+		activeBytes: activeBytes,
 	}
 	j.rc.Store(1) // Master ref
 	return j
@@ -44,7 +46,7 @@ func (j *Journal) Release() {
 
 // replay scans the log from start to finish, applies fn to each record
 // and updates the journal end offset.
-func (j *Journal) replay(fn func(rec *Record, offset int64) error) error {
+func (j *Journal) replay(fn func(rec *Record, offset int64) (int64, error)) error {
 	if _, err := j.file.Seek(0, io.SeekStart); err != nil {
 		return fmt.Errorf("failed to seek to start of journal: %w", err)
 	}
@@ -73,9 +75,12 @@ func (j *Journal) replay(fn func(rec *Record, offset int64) error) error {
 			return err
 		}
 
-		if err := fn(rec, pos); err != nil {
+		delta, err := fn(rec, pos)
+		if err != nil {
 			return err
 		}
+
+		j.activeBytes += delta
 
 		pos += int64(n)
 		j.endOffset = pos

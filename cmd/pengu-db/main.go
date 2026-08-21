@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -12,9 +13,12 @@ import (
 )
 
 func main() {
-	store, err := pengu.Open("data/data.db")
+	// TODO: clean up temp files/multiple log files from compaction failure.
+	path := fmt.Sprintf("%s/%s.log", "data", pengu.StampedLogFile())
+
+	store, err := pengu.Open(path)
 	if err != nil {
-		log.Fatalf("pengu: %v", err)
+		log.Fatalf("failed to open store: %v", err)
 	}
 	defer store.Close()
 
