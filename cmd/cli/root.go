@@ -40,7 +40,7 @@ func Run(ctx context.Context, store *pengu.Store) {
 			}
 
 			if line == "exit" {
-				break
+				return
 			}
 
 			resetFlags(root)

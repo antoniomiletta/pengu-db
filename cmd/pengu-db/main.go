@@ -13,17 +13,46 @@ import (
 )
 
 func main() {
-	// TODO: clean up temp files/multiple log files from compaction failure.
-	path := fmt.Sprintf("%s/%s.log", "data", pengu.StampedLogFile())
+	datadir := "data"
 
-	store, err := pengu.Open(path)
+	if err := os.MkdirAll(datadir, 0o755); err != nil {
+		log.Fatalf("failed to create path: %v", err)
+	}
+
+	latestLog := filterObsolete(datadir)
+	target := fmt.Sprintf("%s/%s", datadir, latestLog)
+
+	store, err := pengu.Open(target)
 	if err != nil {
 		log.Fatalf("failed to open store: %v", err)
 	}
 	defer store.Close()
 
+	// TODO: compaction worker
+	// TODO: clean up temp files/multiple log files from compaction failure.
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	cli.Run(ctx, store)
+}
+
+func filterObsolete(datadir string) string {
+	logs, err := os.ReadDir(datadir)
+	if err != nil {
+		log.Fatalf("failed to read data directory: %v", err)
+	}
+
+	if len(logs) == 0 {
+		return fmt.Sprintf("%s.log", pengu.StampedLogFile())
+	}
+
+	var latest string
+	for _, log := range logs {
+		if log.Name() > latest {
+			latest = log.Name()
+		}
+	}
+
+	return latest
 }

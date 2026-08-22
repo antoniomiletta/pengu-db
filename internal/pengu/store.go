@@ -18,9 +18,6 @@ type Store struct {
 
 // Open initializes storage and builds the index
 func Open(path string) (*Store, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, fmt.Errorf("failed to create path: %w", err)
-	}
 	f, err := os.OpenFile(path, LogFileFlags, LogFilePerm)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create/open log file: %w", err)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"os"
 )
 
 type Record struct {
@@ -99,7 +100,42 @@ func encode(typ uint8, key, val []byte) []byte {
 	return buf
 }
 
-// DecodeAt parses a Record at the offset and returns it.
+// decodeAt parses a Record at the offset and returns it.
 // Contrary to Decode, it uses readAt (pread() syscall) to read into the file,
 // and should not be called sequentially to parse a full log file.
-// func DecodeAt(f *os.File, offset int64) (*Record, error)
+func decodeAt(f *os.File, offset int64) (*Record, error) {
+	var header [SizeHeader]byte
+	if _, err := f.ReadAt(header[:], offset); err != nil {
+		return nil, err
+	}
+
+	crc := binary.BigEndian.Uint32(header[:OffsetTyp])
+	typ := header[OffsetTyp]
+	keySize := binary.BigEndian.Uint32(header[OffsetKeySize:OffsetValSize])
+	valSize := binary.BigEndian.Uint32(header[OffsetValSize:])
+
+	payload := make([]byte, keySize+valSize)
+	if _, err := f.ReadAt(payload, offset+SizeHeader); err != nil {
+		return nil, err
+	}
+
+	key := payload[:keySize]
+	val := payload[keySize:]
+
+	checksum := crc32.ChecksumIEEE(header[SizeCRC:])
+	checksum = crc32.Update(checksum, crc32.IEEETable, payload)
+	if checksum != crc {
+		return nil, fmt.Errorf("decode: %w (expected %d, got %d)", ErrCRCMismatch, crc, checksum)
+	}
+
+	rec := &Record{
+		CRC:     crc,
+		Typ:     typ,
+		KeySize: keySize,
+		ValSize: valSize,
+		Key:     key,
+		Val:     val,
+	}
+
+	return rec, nil
+}
