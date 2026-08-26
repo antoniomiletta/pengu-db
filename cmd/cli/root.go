@@ -33,6 +33,7 @@ func Run(ctx context.Context, store *pengu.Store) {
 
 		select {
 		case <-ctx.Done():
+			fmt.Println("\nShutting down cli...")
 			return
 		case line := <-inputCh:
 			if line == "" {

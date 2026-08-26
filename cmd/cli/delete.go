@@ -8,7 +8,7 @@ import (
 func newDeleteCmd(store *pengu.Store) *cobra.Command {
 	return &cobra.Command{
 		Use:  "delete",
-		Args: cobra.MinimumNArgs(1),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key := []byte(args[0])
 			return del(store, key)

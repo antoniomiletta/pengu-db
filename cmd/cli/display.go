@@ -15,7 +15,7 @@ import (
 func newDisplayCmd(store *pengu.Store) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:  "dr",
-		Args: cobra.MinimumNArgs(0),
+		Args: cobra.ExactArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			alive, _ := cmd.Flags().GetBool("alive")
 			if alive {
@@ -69,7 +69,6 @@ func displayAlive(store *pengu.Store) error {
 }
 
 func display(store *pengu.Store) error {
-	// TODO: check for a better approach than opening a new file handle
 	file, err := os.Open(store.Journal.Path)
 	if err != nil {
 		return fmt.Errorf("failed to open file for debugging: %w", err)

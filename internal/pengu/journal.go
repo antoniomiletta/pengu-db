@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"sync/atomic"
 )
 
+// TODO: Stat() helper for locking and reading endOffset and activeBytes.
 type Journal struct {
 	Path        string
 	file        *os.File
@@ -61,7 +63,7 @@ func (j *Journal) replay(fn func(rec *Record, offset int64) (int64, error)) erro
 				break
 			}
 			if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, ErrCRCMismatch) {
-				fmt.Printf("[WARNING] torn/corrupted record at offset %d. Truncating file.\n", j.endOffset)
+				log.Printf("[WARNING] torn/corrupted record at offset %d. Truncating file.\n", j.endOffset)
 				if err := j.file.Truncate(j.endOffset); err != nil {
 					return fmt.Errorf("failed to truncate file: %w", err)
 				}
@@ -80,17 +82,19 @@ func (j *Journal) replay(fn func(rec *Record, offset int64) (int64, error)) erro
 			return err
 		}
 
-		j.activeBytes += delta
-
 		pos += int64(n)
 		j.endOffset = pos
+		j.activeBytes += delta
 	}
 
 	return nil
 }
 
-// readValueAt reads directly into an index offset and returns its value,
+// readValueAt reads directly into an index offset and returns the record value,
 // ignoring the header and key.
+//
+// It is thread-safe for concurrent readers and writers, but when used concurrently, it should follow a
+// journal.rc increment, so compaction can't delete an obsolete log file while it's still being referenced.
 func readValueAt(f *os.File, entry indexEntry) ([]byte, error) {
 	valOffset := entry.offset + SizeHeader + int64(entry.keySize)
 	val := make([]byte, entry.valSize)

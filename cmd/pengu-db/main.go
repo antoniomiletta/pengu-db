@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/antoniomiletta/pengu-db/cmd/cli"
@@ -28,11 +29,18 @@ func main() {
 	}
 	defer store.Close()
 
-	// TODO: compaction worker
-	// TODO: clean up temp files/multiple log files from compaction failure.
-
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	// TODO: cleanup leftover files from compaction failure.
+	compactionWorker := pengu.NewCompactionWorker(store)
+
+	var wg sync.WaitGroup
+	defer wg.Wait()
+
+	wg.Go(func() {
+		compactionWorker.StartPoll(ctx, store)
+	})
 
 	cli.Run(ctx, store)
 }

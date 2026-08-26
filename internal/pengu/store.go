@@ -147,7 +147,7 @@ func (s *Store) Delete(key []byte) error {
 	if exists {
 		existingSize = int64(SizeHeader + existing.keySize + existing.valSize)
 	} else {
-		// Skip tombstone to inexistent keys
+		// Ignore tombstone to inexistent keys
 		return nil
 	}
 

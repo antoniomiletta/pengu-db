@@ -3,6 +3,7 @@ package pengu
 import (
 	"bytes"
 	"fmt"
+	"path/filepath"
 	"testing"
 )
 
@@ -19,12 +20,29 @@ func openStore(t *testing.T) *Store {
 func seed(t *testing.T, store *Store) {
 	t.Helper()
 
-	store.Set([]byte("key"), []byte("value"))
-	store.Set([]byte("key1"), []byte("same_value"))
-	store.Set([]byte("key1"), []byte("same_value"))
-	store.Set([]byte("key1"), []byte("smaller"))
-	store.Set([]byte("key1"), []byte("laaaaaaarger"))
-	store.Delete([]byte("key2"))
+	store.Set([]byte("key-1"), []byte("value-1"))
+	store.Set([]byte("key-2"), []byte("value-2"))
+	store.Set([]byte("key-3"), []byte("value-3"))
+	store.Set([]byte("key-3"), []byte("other-value-3"))
+	store.Delete([]byte("key-2"))
+}
+
+func seedGarbage(t *testing.T, store *Store) {
+	t.Helper()
+
+	for i := 0; i < 10; i++ {
+		key := []byte(fmt.Sprintf("key-%d", i))
+		val := []byte(fmt.Sprintf("value-%d", i))
+		store.Set(key, val)
+	}
+
+	for i := 0; i < 5; i++ {
+		key := []byte(fmt.Sprintf("key-%d", i))
+		val := []byte(fmt.Sprintf("new-value-padding-%d", i))
+		store.Set(key, val)
+	}
+	store.Delete([]byte("key-8"))
+	store.Delete([]byte("key-9"))
 }
 
 func TestStore_CoreAPI(t *testing.T) {
@@ -50,54 +68,94 @@ func TestStore_CoreAPI(t *testing.T) {
 	}
 	deleted, _ := store.Get(key)
 	if deleted != nil {
-		t.Fatalf("expected nil, got %s", val)
+		t.Fatalf("expected nil, got %s", deleted)
 	}
 
-	assertInvariants(t, store)
+	validateInternalState(t, store)
 }
 
 func TestStore_LifecycleConsistency(t *testing.T) {
 	store := openStore(t)
+	defer store.Close()
 
 	key := []byte("key")
 	val := []byte("value")
-	smaller := []byte("laaaarger_value")
-	larger := []byte("smaller_value")
+	smaller := []byte("smaller_value")
+	larger := []byte("laaaarger_value")
 
 	store.Set(key, val)
-	assertInvariants(t, store)
+	validateInternalState(t, store)
 
 	store.Set(key, val)
-	assertInvariants(t, store)
+	validateInternalState(t, store)
 
 	store.Set(key, smaller)
-	assertInvariants(t, store)
+	validateInternalState(t, store)
 
 	store.Set(key, larger)
-	assertInvariants(t, store)
+	validateInternalState(t, store)
 
 	store.Delete(key)
-	assertInvariants(t, store)
+	validateInternalState(t, store)
 }
 
 func TestStore_CrashRecovery(t *testing.T) {
-	store := openStore(t)
+	dir := t.TempDir()
+	testLog := filepath.Join(dir, "test.log")
+
+	store, err := Open(testLog)
+	if err != nil {
+		t.Fatalf("failed to open: %v", err)
+	}
 
 	seed(t, store)
-
-	assertInvariants(t, store)
+	validateInternalState(t, store)
 	store.Close()
 
-	store2 := openStore(t)
+	store2, err := Open(testLog)
+	if err != nil {
+		t.Fatalf("failed to reopen: %v", err)
+	}
 	defer store2.Close()
 
-	assertInvariants(t, store2)
+	validateInternalState(t, store2)
+}
+
+func TestStore_Compaction(t *testing.T) {
+	store := openStore(t)
+	defer store.Close()
+
+	seedGarbage(t, store)
+
+	store.mu.RLock()
+	totalBefore := store.Journal.endOffset
+	activeBefore := store.Journal.activeBytes
+	store.mu.RUnlock()
+
+	if totalBefore <= activeBefore {
+		t.Fatalf("setup failed: expected garbage bytes before compaction, got: total: %d, active; %d", totalBefore, activeBefore)
+	}
+
+	if err := store.Compact(); err != nil {
+		t.Fatalf("failed to compact file: %v", err)
+	}
+
+	store.mu.RLock()
+	totalAfter := store.Journal.endOffset
+	activeAfter := store.Journal.activeBytes
+	store.mu.RUnlock()
+
+	if totalAfter != activeAfter {
+		t.Fatalf("found garbage after compaction: expected all active bytes, got: %d/%d", activeAfter, totalAfter)
+	}
+
+	validateInternalState(t, store)
 }
 
 // TODO: test concurrency
 
-// assertInvariants inspects and validates the internal state of store.
-func assertInvariants(t *testing.T, store *Store) {
+// validateInternalState inspects and validates the store's index and metadata.
+func validateInternalState(t *testing.T, store *Store) {
 	t.Helper()
 	store.mu.RLock()
 	defer store.mu.RUnlock()

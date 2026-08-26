@@ -8,7 +8,7 @@ import (
 func newSetCmd(store *pengu.Store) *cobra.Command {
 	return &cobra.Command{
 		Use:  "set",
-		Args: cobra.MinimumNArgs(2),
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key := args[0]
 			val := args[1]
