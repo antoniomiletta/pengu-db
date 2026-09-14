@@ -2,12 +2,10 @@ package pengu
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 )
 
 type Store struct {
@@ -118,7 +116,7 @@ func (s *Store) Get(key []byte) ([]byte, error) {
 	entry, exists := s.index[string(key)]
 	if !exists {
 		s.mu.RUnlock()
-		return nil, errors.New("record not found")
+		return nil, ErrRecordNotFound
 	}
 
 	j := s.Journal
@@ -272,8 +270,4 @@ func (s *Store) Compact() error {
 
 	success = true
 	return nil
-}
-
-func StampedLogFile() string {
-	return fmt.Sprintf("data-%d", time.Now().UnixNano())
 }

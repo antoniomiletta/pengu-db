@@ -1,7 +1,7 @@
 .PHONY: dev
 
 dev:
-	go run cmd/pengu-db/main.go
+	go run ./cmd/pengu
 
 test:
 	go test ./... | grep -v "no test files"

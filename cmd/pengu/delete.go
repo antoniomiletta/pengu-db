@@ -1,7 +1,7 @@
-package cli
+package main
 
 import (
-	"github.com/antoniomiletta/pengu-db/internal/pengu"
+	"github.com/antoniomiletta/pengu-db"
 	"github.com/spf13/cobra"
 )
 

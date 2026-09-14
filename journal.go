@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"sync/atomic"
+	"time"
 )
 
 // TODO: Stat() helper for locking and reading endOffset and activeBytes.
@@ -47,7 +48,7 @@ func (j *Journal) Release() {
 }
 
 // replay scans the log from start to finish, applies fn to each record
-// and updates the journal end offset.
+// and updates journal metadata.
 func (j *Journal) replay(fn func(rec *Record, offset int64) (int64, error)) error {
 	if _, err := j.file.Seek(0, io.SeekStart); err != nil {
 		return fmt.Errorf("failed to seek to start of journal: %w", err)
@@ -55,7 +56,6 @@ func (j *Journal) replay(fn func(rec *Record, offset int64) (int64, error)) erro
 
 	var pos int64
 	reader := bufio.NewReaderSize(j.file, 64*1024)
-
 	for {
 		rec, n, err := Decode(reader)
 		if err != nil {
@@ -104,4 +104,8 @@ func readValueAt(f *os.File, entry indexEntry) ([]byte, error) {
 	}
 
 	return val, nil
+}
+
+func StampedLogFile() string {
+	return fmt.Sprintf("data-%d", time.Now().UnixNano())
 }

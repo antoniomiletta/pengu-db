@@ -1,4 +1,4 @@
-package cli
+package main
 
 import (
 	"bufio"
@@ -7,12 +7,12 @@ import (
 	"os"
 	"strings"
 
-	"github.com/antoniomiletta/pengu-db/internal/pengu"
+	"github.com/antoniomiletta/pengu-db"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
-func Run(ctx context.Context, store *pengu.Store) {
+func Execute(ctx context.Context, store *pengu.Store) {
 	root := newRootCmd(store)
 	scanner := bufio.NewScanner(os.Stdin)
 
@@ -56,7 +56,7 @@ func Run(ctx context.Context, store *pengu.Store) {
 
 func newRootCmd(store *pengu.Store) *cobra.Command {
 	root := &cobra.Command{
-		Use:           "repl",
+		Use:           "pengu",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

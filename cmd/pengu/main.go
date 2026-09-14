@@ -9,11 +9,13 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/antoniomiletta/pengu-db/cmd/cli"
-	"github.com/antoniomiletta/pengu-db/internal/pengu"
+	"github.com/antoniomiletta/pengu-db"
 )
 
 func main() {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
 	datadir := "data"
 
 	if err := os.MkdirAll(datadir, 0o755); err != nil {
@@ -29,10 +31,7 @@ func main() {
 	}
 	defer store.Close()
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
-
-	// TODO: cleanup leftover files from compaction failure.
+	// TODO: cleanup leftover files from compaction crash.
 	compactionWorker := pengu.NewCompactionWorker(store)
 
 	var wg sync.WaitGroup
@@ -42,7 +41,8 @@ func main() {
 		compactionWorker.StartPoll(ctx, store)
 	})
 
-	cli.Run(ctx, store)
+	Execute(ctx, store)
+	cancel() // cancel context after repl returns so worker doesnt block shutdown
 }
 
 func filterObsolete(datadir string) string {
