@@ -1,8 +1,10 @@
-package pengu
+package pengudb
 
 import "errors"
 
 var (
-	ErrRecordNotFound = errors.New("record not found")
-	ErrCRCMismatch    = errors.New("crc mismatch")
+	errRecordNotFound        = errors.New("record not found")
+	errCRCMismatch           = errors.New("crc mismatch")
+	errLogTooSmall           = errors.New("log file too small for compaction")
+	errInsufficientDeadBytes = errors.New("dead bytes below compaction threshold")
 )

@@ -1,4 +1,4 @@
-package pengu
+package pengudb
 
 type indexEntry struct {
 	offset  int64

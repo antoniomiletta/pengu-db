@@ -1,8 +1,9 @@
-package pengu
+package pengudb
 
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -10,45 +11,52 @@ import (
 
 type Store struct {
 	mu      sync.RWMutex
-	Journal *Journal
+	journal *journal
 	index   map[string]indexEntry
 }
 
 // Open initializes storage and builds the index
-func Open(path string) (*Store, error) {
-	f, err := os.OpenFile(path, LogFileFlags, LogFilePerm)
+func Open(dir string) (*Store, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		log.Fatalf("failed to create path: %v", err)
+	}
+
+	log := stampedLogFile()
+	target := fmt.Sprintf("%s/%s", dir, log)
+
+	f, err := os.OpenFile(target, logFileFlags, logFilePerm)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create/open log file: %w", err)
 	}
 
-	journal := newJournal(path, f, 0, 0)
+	journal := newJournal(dir, f, 0, 0)
 
 	idx := make(map[string]indexEntry)
 
-	buildIndex := func(rec *Record, offset int64) (int64, error) {
-		existing, exists := idx[string(rec.Key)]
+	buildIndex := func(rec *record, offset int64) (int64, error) {
+		existing, exists := idx[string(rec.key)]
 
-		if rec.Typ == TypeTombstone {
+		if rec.typ == typeTombstone {
 			var existingSize int64
 
 			if exists {
-				delete(idx, string(rec.Key))
-				existingSize = int64(SizeHeader + existing.keySize + existing.valSize)
+				delete(idx, string(rec.key))
+				existingSize = int64(sizeHeader + existing.keySize + existing.valSize)
 			}
 
 			return -existingSize, nil
 		} else {
-			var recSize = int64(SizeHeader + rec.KeySize + rec.ValSize)
+			var recSize = int64(sizeHeader + rec.keySize + rec.valSize)
 			var existingSize int64
 
 			if exists {
-				existingSize = int64(SizeHeader + existing.keySize + existing.valSize)
+				existingSize = int64(sizeHeader + existing.keySize + existing.valSize)
 			}
 
-			idx[string(rec.Key)] = indexEntry{
+			idx[string(rec.key)] = indexEntry{
 				offset:  offset,
-				valSize: rec.ValSize,
-				keySize: rec.KeySize,
+				valSize: rec.valSize,
+				keySize: rec.keySize,
 			}
 
 			deltaBytes := recSize - existingSize
@@ -61,7 +69,7 @@ func Open(path string) (*Store, error) {
 	}
 
 	return &Store{
-		Journal: journal,
+		journal: journal,
 		index:   idx,
 	}, nil
 }
@@ -70,8 +78,8 @@ func (s *Store) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.Journal.obsolete.Store(false)
-	s.Journal.Release() // Release Master ref
+	s.journal.obsolete.Store(false)
+	s.journal.Release() // Release Master ref
 }
 
 // Set appends a new key-value pair to the log file.
@@ -79,32 +87,32 @@ func (s *Store) Set(key, value []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	data := encode(TypeNormal, key, value)
+	data := encode(typeNormal, key, value)
 
-	n, err := s.Journal.file.Write(data)
+	n, err := s.journal.file.Write(data)
 	if err != nil {
 		return err
 	}
-	s.Journal.file.Sync()
+	s.journal.file.Sync()
 
 	var recSize = int64(n)
 	var existingSize int64
 
 	existing, exists := s.index[string(key)]
 	if exists {
-		existingSize = int64(SizeHeader + existing.keySize + existing.valSize)
+		existingSize = int64(sizeHeader + existing.keySize + existing.valSize)
 	}
 
 	s.index[string(key)] = indexEntry{
-		offset:  s.Journal.endOffset,
+		offset:  s.journal.endOffset,
 		keySize: uint32(len(key)),
 		valSize: uint32(len(value)),
 	}
 
 	deltaBytes := recSize - existingSize
 
-	s.Journal.endOffset += int64(n)
-	s.Journal.activeBytes += deltaBytes
+	s.journal.endOffset += int64(n)
+	s.journal.activeBytes += deltaBytes
 
 	return nil
 }
@@ -116,10 +124,10 @@ func (s *Store) Get(key []byte) ([]byte, error) {
 	entry, exists := s.index[string(key)]
 	if !exists {
 		s.mu.RUnlock()
-		return nil, ErrRecordNotFound
+		return nil, errRecordNotFound
 	}
 
-	j := s.Journal
+	j := s.journal
 	j.rc.Add(1)
 	defer j.Release()
 
@@ -143,24 +151,24 @@ func (s *Store) Delete(key []byte) error {
 
 	existing, exists := s.index[string(key)]
 	if exists {
-		existingSize = int64(SizeHeader + existing.keySize + existing.valSize)
+		existingSize = int64(sizeHeader + existing.keySize + existing.valSize)
 	} else {
 		// Ignore tombstone to inexistent keys
 		return nil
 	}
 
-	data := encode(TypeTombstone, key, nil)
+	data := encode(typeTombstone, key, nil)
 
-	n, err := s.Journal.file.Write(data)
+	n, err := s.journal.file.Write(data)
 	if err != nil {
 		return err
 	}
-	s.Journal.file.Sync()
+	s.journal.file.Sync()
 
 	delete(s.index, string(key))
 
-	s.Journal.endOffset += int64(n)
-	s.Journal.activeBytes -= existingSize
+	s.journal.endOffset += int64(n)
+	s.journal.activeBytes -= existingSize
 
 	return nil
 }
@@ -183,7 +191,7 @@ func (s *Store) Iter(fn func(key, val []byte) error) error {
 		snapshot = append(snapshot, snapshotEntry{key: k, entry: e})
 	}
 
-	j := s.Journal
+	j := s.journal
 	j.rc.Add(1)
 	defer j.Release()
 
@@ -201,15 +209,24 @@ func (s *Store) Iter(fn func(key, val []byte) error) error {
 	return nil
 }
 
+var minSize int64 = 5 * 1024 * 1024
+
 func (s *Store) Compact() error {
+	if !(s.journal.endOffset > minSize) {
+		return errLogTooSmall
+	}
+	if !(s.journal.endOffset > s.journal.activeBytes*2) {
+		return errInsufficientDeadBytes
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	var success bool
 
-	baseName := StampedLogFile()
-	tmpPath := filepath.Join(filepath.Dir(s.Journal.Path), baseName+".tmp")
-	finalPath := filepath.Join(filepath.Dir(s.Journal.Path), baseName+".log")
+	baseName := stampedLogFile()
+	tmpPath := filepath.Join(filepath.Dir(s.journal.path), baseName+".tmp")
+	finalPath := filepath.Join(filepath.Dir(s.journal.path), baseName+".log")
 
 	tmp, err := os.Create(tmpPath)
 	if err != nil {
@@ -226,12 +243,12 @@ func (s *Store) Compact() error {
 	writer := bufio.NewWriterSize(tmp, 64*1024)
 
 	for key, entry := range s.index {
-		val, err := readValueAt(s.Journal.file, entry)
+		val, err := readValueAt(s.journal.file, entry)
 		if err != nil {
 			return err
 		}
 
-		data := encode(TypeNormal, []byte(key), val)
+		data := encode(typeNormal, []byte(key), val)
 
 		n, err := writer.Write(data)
 		if err != nil {
@@ -261,8 +278,8 @@ func (s *Store) Compact() error {
 
 	newJournal := newJournal(finalPath, tmp, newOffset, newOffset)
 
-	old := s.Journal
-	s.Journal = newJournal
+	old := s.journal
+	s.journal = newJournal
 	s.index = newIdx
 
 	old.obsolete.Store(true)
@@ -270,4 +287,24 @@ func (s *Store) Compact() error {
 
 	success = true
 	return nil
+}
+
+func filterObsolete(datadir string) string {
+	logs, err := os.ReadDir(datadir)
+	if err != nil {
+		log.Fatalf("failed to read data directory: %v", err)
+	}
+
+	if len(logs) == 0 {
+		return fmt.Sprintf("%s.log", stampedLogFile())
+	}
+
+	var latest string
+	for _, log := range logs {
+		if log.Name() > latest {
+			latest = log.Name()
+		}
+	}
+
+	return latest
 }

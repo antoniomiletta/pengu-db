@@ -1,4 +1,4 @@
-package pengu
+package pengudb
 
 import (
 	"bytes"
@@ -121,6 +121,7 @@ func TestStore_CrashRecovery(t *testing.T) {
 	validateInternalState(t, store2)
 }
 
+// TODO: configurable compaction rules for tests
 func TestStore_Compaction(t *testing.T) {
 	store := openStore(t)
 	defer store.Close()
@@ -128,8 +129,8 @@ func TestStore_Compaction(t *testing.T) {
 	seedGarbage(t, store)
 
 	store.mu.RLock()
-	totalBefore := store.Journal.endOffset
-	activeBefore := store.Journal.activeBytes
+	totalBefore := store.journal.endOffset
+	activeBefore := store.journal.activeBytes
 	store.mu.RUnlock()
 
 	if totalBefore <= activeBefore {
@@ -141,8 +142,8 @@ func TestStore_Compaction(t *testing.T) {
 	}
 
 	store.mu.RLock()
-	totalAfter := store.Journal.endOffset
-	activeAfter := store.Journal.activeBytes
+	totalAfter := store.journal.endOffset
+	activeAfter := store.journal.activeBytes
 	store.mu.RUnlock()
 
 	if totalAfter != activeAfter {
@@ -163,9 +164,9 @@ func validateInternalState(t *testing.T, store *Store) {
 	var totalActiveBytes int64
 
 	for k, e := range store.index {
-		bytes := int64(SizeHeader + e.keySize + e.valSize)
+		bytes := int64(sizeHeader + e.keySize + e.valSize)
 
-		val, err := readValueAt(store.Journal.file, e)
+		val, err := readValueAt(store.journal.file, e)
 		if err != nil {
 			t.Fatalf("invariant broken: index: %s points to unreadable offset: %d: %v", k, e.offset, err)
 		}
@@ -174,14 +175,14 @@ func validateInternalState(t *testing.T, store *Store) {
 			t.Fatalf("invariant broken: index: %s points to nil value (offset: %d)", k, e.offset)
 		}
 
-		if _, err := decodeAt(store.Journal.file, e.offset); err != nil {
+		if _, err := decodeAt(store.journal.file, e.offset); err != nil {
 			t.Fatalf("invariant broken: index: %s points to invalid record (offset: %d): %v", k, e.offset, err)
 		}
 
 		totalActiveBytes += bytes
 	}
 
-	if totalActiveBytes != store.Journal.activeBytes {
-		t.Fatalf("invariant broken: active bytes: expected: %d, got: %d", totalActiveBytes, store.Journal.activeBytes)
+	if totalActiveBytes != store.journal.activeBytes {
+		t.Fatalf("invariant broken: active bytes: expected: %d, got: %d", totalActiveBytes, store.journal.activeBytes)
 	}
 }

@@ -1,4 +1,4 @@
-package pengu
+package pengudb
 
 import (
 	"bufio"
@@ -11,9 +11,8 @@ import (
 	"time"
 )
 
-// TODO: Stat() helper for locking and reading endOffset and activeBytes.
-type Journal struct {
-	Path        string
+type journal struct {
+	path        string
 	file        *os.File
 	rc          atomic.Int32
 	obsolete    atomic.Bool
@@ -21,14 +20,14 @@ type Journal struct {
 	activeBytes int64
 }
 
-const LogFileFlags = os.O_CREATE | os.O_RDWR | os.O_APPEND
-const LogFilePerm = 0o644
+const logFileFlags = os.O_CREATE | os.O_RDWR | os.O_APPEND
+const logFilePerm = 0o644
 
 // newJournal returns a journey instance with a master ref.
 // You don't have to manually increment rc on every new instance.
-func newJournal(path string, f *os.File, endOffset int64, activeBytes int64) *Journal {
-	j := &Journal{
-		Path:        path,
+func newJournal(path string, f *os.File, endOffset int64, activeBytes int64) *journal {
+	j := &journal{
+		path:        path,
 		file:        f,
 		endOffset:   endOffset,
 		activeBytes: activeBytes,
@@ -37,19 +36,19 @@ func newJournal(path string, f *os.File, endOffset int64, activeBytes int64) *Jo
 	return j
 }
 
-func (j *Journal) Release() {
+func (j *journal) Release() {
 	if j.rc.Add(-1) == 0 {
 		j.file.Close()
 
 		if j.obsolete.Load() {
-			os.Remove(j.Path)
+			os.Remove(j.path)
 		}
 	}
 }
 
 // replay scans the log from start to finish, applies fn to each record
 // and updates journal metadata.
-func (j *Journal) replay(fn func(rec *Record, offset int64) (int64, error)) error {
+func (j *journal) replay(fn func(rec *record, offset int64) (int64, error)) error {
 	if _, err := j.file.Seek(0, io.SeekStart); err != nil {
 		return fmt.Errorf("failed to seek to start of journal: %w", err)
 	}
@@ -57,12 +56,12 @@ func (j *Journal) replay(fn func(rec *Record, offset int64) (int64, error)) erro
 	var pos int64
 	reader := bufio.NewReaderSize(j.file, 64*1024)
 	for {
-		rec, n, err := Decode(reader)
+		rec, n, err := decode(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, ErrCRCMismatch) {
+			if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, errCRCMismatch) {
 				log.Printf("[WARNING] torn/corrupted record at offset %d. Truncating file.\n", j.endOffset)
 				if err := j.file.Truncate(j.endOffset); err != nil {
 					return fmt.Errorf("failed to truncate file: %w", err)
@@ -96,7 +95,7 @@ func (j *Journal) replay(fn func(rec *Record, offset int64) (int64, error)) erro
 // It is thread-safe for concurrent readers and writers, but when used concurrently, it should follow a
 // journal.rc increment, so compaction can't delete an obsolete log file while it's still being referenced.
 func readValueAt(f *os.File, entry indexEntry) ([]byte, error) {
-	valOffset := entry.offset + SizeHeader + int64(entry.keySize)
+	valOffset := entry.offset + sizeHeader + int64(entry.keySize)
 	val := make([]byte, entry.valSize)
 
 	if _, err := f.ReadAt(val, valOffset); err != nil {
@@ -106,6 +105,6 @@ func readValueAt(f *os.File, entry indexEntry) ([]byte, error) {
 	return val, nil
 }
 
-func StampedLogFile() string {
-	return fmt.Sprintf("data-%d", time.Now().UnixNano())
+func stampedLogFile() string {
+	return fmt.Sprintf("data-%d.log", time.Now().UnixNano())
 }

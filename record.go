@@ -1,4 +1,4 @@
-package pengu
+package pengudb
 
 import (
 	"encoding/binary"
@@ -8,46 +8,46 @@ import (
 	"os"
 )
 
-type Record struct {
-	CRC     uint32
-	Typ     uint8
-	KeySize uint32
-	ValSize uint32
-	Key     []byte
-	Val     []byte
+type record struct {
+	crc     uint32
+	typ     uint8
+	keySize uint32
+	valSize uint32
+	key     []byte
+	val     []byte
 }
 
 const (
-	TypeNormal    = 0x01
-	TypeTombstone = 0x02
+	typeNormal    = 0x01
+	typeTombstone = 0x02
 )
 
 const (
-	SizeCRC     = 4
-	SizeTyp     = 1
-	SizeKeySize = 4
-	SizeValSize = 4
+	sizeCRC     = 4
+	sizeTyp     = 1
+	sizeKeySize = 4
+	sizeValSize = 4
 
-	SizeHeader = SizeCRC + SizeTyp + SizeKeySize + SizeValSize
+	sizeHeader = sizeCRC + sizeTyp + sizeKeySize + sizeValSize
 
-	OffsetCRC     = 0
-	OffsetTyp     = OffsetCRC + SizeCRC
-	OffsetKeySize = OffsetTyp + SizeTyp
-	OffsetValSize = OffsetKeySize + SizeKeySize
+	offsetCRC     = 0
+	offsetTyp     = offsetCRC + sizeCRC
+	offsetKeySize = offsetTyp + sizeTyp
+	offsetValSize = offsetKeySize + sizeKeySize
 )
 
-// Decode parses a Record from r returning the record and the total bytes read.
+// decode parses a Record from r returning the record and the total bytes read.
 // It uses a Reader instead of a file descriptor, avoiding multiple syscalls.
 // It can be sequentially called to fully parse a log file.
-func Decode(r io.Reader) (*Record, int, error) {
-	var header [SizeHeader]byte
+func decode(r io.Reader) (*record, int, error) {
+	var header [sizeHeader]byte
 	if _, err := io.ReadFull(r, header[:]); err != nil {
 		return nil, 0, err
 	}
-	crc := binary.BigEndian.Uint32(header[:OffsetTyp])
-	typ := header[OffsetTyp]
-	keySize := binary.BigEndian.Uint32(header[OffsetKeySize:OffsetValSize])
-	valSize := binary.BigEndian.Uint32(header[OffsetValSize:])
+	crc := binary.BigEndian.Uint32(header[:offsetTyp])
+	typ := header[offsetTyp]
+	keySize := binary.BigEndian.Uint32(header[offsetKeySize:offsetValSize])
+	valSize := binary.BigEndian.Uint32(header[offsetValSize:])
 
 	payload := make([]byte, keySize+valSize)
 	if _, err := io.ReadFull(r, payload); err != nil {
@@ -57,21 +57,21 @@ func Decode(r io.Reader) (*Record, int, error) {
 	key := payload[:keySize]
 	val := payload[keySize:]
 
-	checksum := crc32.ChecksumIEEE(header[SizeCRC:])
+	checksum := crc32.ChecksumIEEE(header[sizeCRC:])
 	checksum = crc32.Update(checksum, crc32.IEEETable, payload)
 	if checksum != crc {
-		return nil, 0, fmt.Errorf("decode: %w (expected %d, got %d)", ErrCRCMismatch, crc, checksum)
+		return nil, 0, fmt.Errorf("decode: %w (expected %d, got %d)", errCRCMismatch, crc, checksum)
 	}
 
-	rec := &Record{
-		CRC:     crc,
-		Typ:     typ,
-		KeySize: keySize,
-		ValSize: valSize,
-		Key:     key,
-		Val:     val,
+	rec := &record{
+		crc:     crc,
+		typ:     typ,
+		keySize: keySize,
+		valSize: valSize,
+		key:     key,
+		val:     val,
 	}
-	n := int(SizeHeader + keySize + valSize)
+	n := int(sizeHeader + keySize + valSize)
 
 	return rec, n, nil
 }
@@ -81,7 +81,7 @@ func encode(typ uint8, key, val []byte) []byte {
 	valSize := uint32(len(val))
 	payloadSize := keySize + valSize
 
-	buf := make([]byte, 0, SizeHeader+payloadSize)
+	buf := make([]byte, 0, sizeHeader+payloadSize)
 
 	// CRC placeholder
 	buf = append(buf, 0, 0, 0, 0)
@@ -94,8 +94,8 @@ func encode(typ uint8, key, val []byte) []byte {
 	buf = append(buf, key...)
 	buf = append(buf, val...)
 
-	crc := crc32.ChecksumIEEE(buf[SizeCRC:])
-	binary.BigEndian.PutUint32(buf[:SizeCRC], crc)
+	crc := crc32.ChecksumIEEE(buf[sizeCRC:])
+	binary.BigEndian.PutUint32(buf[:sizeCRC], crc)
 
 	return buf
 }
@@ -103,38 +103,38 @@ func encode(typ uint8, key, val []byte) []byte {
 // decodeAt parses a Record at the offset and returns it.
 // Contrary to Decode, it uses readAt (pread() syscall) to read into the file,
 // and should not be called sequentially to parse a full log file.
-func decodeAt(f *os.File, offset int64) (*Record, error) {
-	var header [SizeHeader]byte
+func decodeAt(f *os.File, offset int64) (*record, error) {
+	var header [sizeHeader]byte
 	if _, err := f.ReadAt(header[:], offset); err != nil {
 		return nil, err
 	}
 
-	crc := binary.BigEndian.Uint32(header[:OffsetTyp])
-	typ := header[OffsetTyp]
-	keySize := binary.BigEndian.Uint32(header[OffsetKeySize:OffsetValSize])
-	valSize := binary.BigEndian.Uint32(header[OffsetValSize:])
+	crc := binary.BigEndian.Uint32(header[:offsetTyp])
+	typ := header[offsetTyp]
+	keySize := binary.BigEndian.Uint32(header[offsetKeySize:offsetValSize])
+	valSize := binary.BigEndian.Uint32(header[offsetValSize:])
 
 	payload := make([]byte, keySize+valSize)
-	if _, err := f.ReadAt(payload, offset+SizeHeader); err != nil {
+	if _, err := f.ReadAt(payload, offset+sizeHeader); err != nil {
 		return nil, err
 	}
 
 	key := payload[:keySize]
 	val := payload[keySize:]
 
-	checksum := crc32.ChecksumIEEE(header[SizeCRC:])
+	checksum := crc32.ChecksumIEEE(header[sizeCRC:])
 	checksum = crc32.Update(checksum, crc32.IEEETable, payload)
 	if checksum != crc {
-		return nil, fmt.Errorf("decode: %w (expected %d, got %d)", ErrCRCMismatch, crc, checksum)
+		return nil, fmt.Errorf("decode: %w (expected %d, got %d)", errCRCMismatch, crc, checksum)
 	}
 
-	rec := &Record{
-		CRC:     crc,
-		Typ:     typ,
-		KeySize: keySize,
-		ValSize: valSize,
-		Key:     key,
-		Val:     val,
+	rec := &record{
+		crc:     crc,
+		typ:     typ,
+		keySize: keySize,
+		valSize: valSize,
+		key:     key,
+		val:     val,
 	}
 
 	return rec, nil
