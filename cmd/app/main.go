@@ -14,9 +14,11 @@ func main() {
 	defer pengu.Close()
 
 	pengu.Set([]byte("key"), []byte("value"))
+	pengu.Set([]byte("key1"), []byte("value"))
+	pengu.Set([]byte("key2"), []byte("value"))
+	pengu.Set([]byte("key3"), []byte("value"))
 
-	val, _ := pengu.Get([]byte("key"))
-	println(string(val))
-
-	pengu.Delete([]byte("key"))
+	for _, k := range pengu.Keys() {
+		println(string(k))
+	}
 }

@@ -79,7 +79,7 @@ func (s *Store) Close() {
 	defer s.mu.Unlock()
 
 	s.journal.obsolete.Store(false)
-	s.journal.Release() // Release Master ref
+	s.journal.release() // Release Master ref
 }
 
 // Set appends a new key-value pair to the log file.
@@ -129,7 +129,7 @@ func (s *Store) Get(key []byte) ([]byte, error) {
 
 	j := s.journal
 	j.rc.Add(1)
-	defer j.Release()
+	defer j.release()
 
 	s.mu.RUnlock()
 
@@ -173,41 +173,18 @@ func (s *Store) Delete(key []byte) error {
 	return nil
 }
 
-// Iter creates a snapshot of the current index, iterates it and applies fn
-// to the record corresponding to each entry.
-//
-// The index is only locked during the creation of the snapshot,
-// so a long-running fn() does not block index writes.
-func (s *Store) Iter(fn func(key, val []byte) error) error {
-	type snapshotEntry struct {
-		key   string
-		entry indexEntry
-	}
-
+func (s *Store) Keys() [][]byte {
 	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	snapshot := make([]snapshotEntry, 0, len(s.index))
-	for k, e := range s.index {
-		snapshot = append(snapshot, snapshotEntry{key: k, entry: e})
+	keys := make([][]byte, 0, len(s.index))
+	for k := range s.index {
+		keys = append(keys, []byte(k))
 	}
-
-	j := s.journal
-	j.rc.Add(1)
-	defer j.Release()
-
-	s.mu.RUnlock()
-
-	for _, e := range snapshot {
-		val, err := readValueAt(j.file, e.entry)
-		if err != nil {
-			return err
-		}
-
-		fn([]byte(e.key), val)
-	}
-
-	return nil
+	return keys
 }
+
+// TODO: impl Fold()
 
 var minSize int64 = 5 * 1024 * 1024
 
@@ -283,7 +260,7 @@ func (s *Store) Compact() error {
 	s.index = newIdx
 
 	old.obsolete.Store(true)
-	old.Release()
+	old.release()
 
 	success = true
 	return nil

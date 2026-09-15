@@ -1,7 +1,7 @@
-.PHONY: dev
+.PHONY: dev test
 
 dev:
-	go run ./cmd/pengu
+	go run ./cmd/app
 
 test:
 	go test ./... | grep -v "no test files"

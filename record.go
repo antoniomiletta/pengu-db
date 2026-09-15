@@ -101,7 +101,7 @@ func encode(typ uint8, key, val []byte) []byte {
 }
 
 // decodeAt parses a Record at the offset and returns it.
-// Contrary to Decode, it uses readAt (pread() syscall) to read into the file,
+// Contrary to decode, it uses readAt (pread() syscall) to read into the file,
 // and should not be called sequentially to parse a full log file.
 func decodeAt(f *os.File, offset int64) (*record, error) {
 	var header [sizeHeader]byte

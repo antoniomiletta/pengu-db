@@ -36,7 +36,7 @@ func newJournal(path string, f *os.File, endOffset int64, activeBytes int64) *jo
 	return j
 }
 
-func (j *journal) Release() {
+func (j *journal) release() {
 	if j.rc.Add(-1) == 0 {
 		j.file.Close()
 
@@ -46,8 +46,10 @@ func (j *journal) Release() {
 	}
 }
 
-// replay scans the log from start to finish, applies fn to each record
-// and updates journal metadata.
+// replay scans the log from start to finish, applying fn to each valid record.
+// It automatically truncates the log on invalid records and updates journal metadata.
+//
+// fn is expected to return the net change in live bytes after each call.
 func (j *journal) replay(fn func(rec *record, offset int64) (int64, error)) error {
 	if _, err := j.file.Seek(0, io.SeekStart); err != nil {
 		return fmt.Errorf("failed to seek to start of journal: %w", err)
@@ -55,6 +57,7 @@ func (j *journal) replay(fn func(rec *record, offset int64) (int64, error)) erro
 
 	var pos int64
 	reader := bufio.NewReaderSize(j.file, 64*1024)
+
 	for {
 		rec, n, err := decode(reader)
 		if err != nil {
