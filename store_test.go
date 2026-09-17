@@ -7,14 +7,25 @@ import (
 	"testing"
 )
 
-func openStore(t *testing.T) *Store {
+func openStore(t *testing.T, cfg ...StoreConfig) *Store {
 	t.Helper()
+	target := fmt.Sprintf("%s/test.log", t.TempDir())
 
-	store, err := Open(fmt.Sprintf("%s/test.log", t.TempDir()))
-	if err != nil {
-		t.Fatalf("failed to open store: %v", err)
+	if len(cfg) == 0 {
+		store, err := Open(target)
+		if err != nil {
+			t.Fatalf("failed to open store: %v", err)
+		}
+
+		return store
+	} else {
+		store, err := Open(target, cfg[0])
+		if err != nil {
+			t.Fatalf("failed to open store: %v", err)
+		}
+
+		return store
 	}
-	return store
 }
 
 func seed(t *testing.T, store *Store) {
@@ -121,9 +132,11 @@ func TestStore_CrashRecovery(t *testing.T) {
 	validateInternalState(t, store2)
 }
 
-// TODO: configurable compaction rules for tests
 func TestStore_Compaction(t *testing.T) {
-	store := openStore(t)
+	store := openStore(t, StoreConfig{
+		CompactionMinSize:   0,
+		CompactionDeadRatio: 0,
+	})
 	defer store.Close()
 
 	seedGarbage(t, store)

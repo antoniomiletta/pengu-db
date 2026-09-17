@@ -23,7 +23,7 @@ type journal struct {
 const logFileFlags = os.O_CREATE | os.O_RDWR | os.O_APPEND
 const logFilePerm = 0o644
 
-// newJournal returns a journey instance with a master ref.
+// newJournal returns a journal instance with a master ref.
 // You don't have to manually increment rc on every new instance.
 func newJournal(path string, f *os.File, endOffset int64, activeBytes int64) *journal {
 	j := &journal{
@@ -41,7 +41,7 @@ func (j *journal) release() {
 		j.file.Close()
 
 		if j.obsolete.Load() {
-			os.Remove(j.path)
+			os.Remove(j.file.Name())
 		}
 	}
 }
